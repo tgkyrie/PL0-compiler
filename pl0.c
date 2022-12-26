@@ -355,12 +355,14 @@ void listcode(int from, int to)
 } // listcode
 
 //////////////////////////////////////////////////////////////////////
-void factor(symset fsys)
+bool factor(symset fsys,bool inferNotLvalue)
 {
-	void expression(symset fsys);
+	bool assign_expression(symset fsys);
 	void V(symset fsys);
 	int i;
 	symset set;
+	bool lvalue=0;
+	
 	
 	test(facbegsys, fsys, 24); // The symbol can not be as the beginning of an expression.
 
@@ -381,16 +383,21 @@ void factor(symset fsys)
 					gen(LIT, 0, table[i].value);
 					break;
 				case ID_VARIABLE:
+					lvalue=1;
 					mk = (mask*) &table[i];
-					gen(LOD, level - mk->level, mk->address);
+					if(inferNotLvalue)gen(LOD, level - mk->level, mk->address);
+					else gen(LEA,level-mk->level,mk->address);
 					break;
 				case ID_PROCEDURE:
 					error(21); // Procedure identifier can not be in an expression.
 					break;
 				case ID_ARRAY:
+					lvalue=1;
 					V(fsys);
-					mk=(mask*)&table[i];
-					gen(LODA,level-mk->level,0);
+					if(inferNotLvalue){
+						mk=(mask*)&table[i];
+						gen(LODA,level-mk->level,0);
+					}
 					break;
 				} // switch
 			}
@@ -411,7 +418,8 @@ void factor(symset fsys)
 		{
 			getsym();
 			set = uniteset(createset(SYM_RPAREN, SYM_NULL), fsys);
-			expression(set);
+			// expression(set);
+			lvalue=assign_expression(set);
 			destroyset(set);
 			if (sym == SYM_RPAREN)
 			{
@@ -422,56 +430,72 @@ void factor(symset fsys)
 				error(22); // Missing ')'.
 			}
 		}
-		else if(sym == SYM_MINUS) // UMINUS,  Expr -> '-' Expr
-		{  
-			 getsym();
-			 factor(fsys);
-			 gen(OPR, 0, OPR_NEG);
-		}
-		symset set1=uniteset(fsys,createset(SYM_RBRACKET,SYM_RPAREN));
+		// else if(sym == SYM_MINUS) // UMINUS,  Expr -> '-' Expr
+		// {  
+		// 	 getsym();
+		// 	 factor(fsys);
+		// 	 gen(OPR, 0, OPR_NEG);
+		// }
+		symset set1=uniteset(fsys,createset(SYM_RBRACKET,SYM_RPAREN,SYM_COMMA,SYM_BECOMES));
 		test(set1, createset(SYM_LPAREN, SYM_NULL), 23);
 	} // if
+	return lvalue&&(inferNotLvalue==0);
 } // factor
 
 //////////////////////////////////////////////////////////////////////
-void term(symset fsys)
+bool term(symset fsys,bool inferNotLvalue)
 {
-	int mulop;
-	symset set;
-	
+	int mulop;	symset set;
+	bool lvalue=0;
 	set = uniteset(fsys, createset(SYM_TIMES, SYM_SLASH, SYM_NULL));
-	factor(set);
-	while (sym == SYM_TIMES || sym == SYM_SLASH)
-	{
-		mulop = sym;
-		getsym();
-		factor(set);
-		if (mulop == SYM_TIMES)
-		{
-			gen(OPR, 0, OPR_MUL);
+
+	if(sym==SYM_MINUS){
+		term(fsys,1);
+		gen(OPR,0,OPR_NEG);
+	}
+	else{
+		lvalue=factor(set,inferNotLvalue);
+		if(lvalue&&(sym==SYM_TIMES||sym==SYM_SLASH)){
+			gen(LODA,0,0);
+			lvalue=0;
 		}
-		else
+		while (sym == SYM_TIMES || sym == SYM_SLASH)
 		{
-			gen(OPR, 0, OPR_DIV);
-		}
-	} // while
+			mulop = sym;
+			getsym();
+			factor(set,1);
+			if (mulop == SYM_TIMES)
+			{
+				gen(OPR, 0, OPR_MUL);
+			}
+			else
+			{
+				gen(OPR, 0, OPR_DIV);
+			}
+		} // while
+	}
 	destroyset(set);
+	return lvalue&&(!inferNotLvalue);
 } // term
 
 //////////////////////////////////////////////////////////////////////
-void expression(symset fsys)
+bool expression(symset fsys)
 {
 	int addop;
 	symset set;
-
+	bool lvalue=0;
 	set = uniteset(fsys, createset(SYM_PLUS, SYM_MINUS, SYM_NULL));
-	
-	term(set);
+
+	lvalue=term(set,0);
+	if(lvalue&&(sym == SYM_PLUS || sym == SYM_MINUS)){
+		gen(LODA,0,0);
+		lvalue=0;
+	}
 	while (sym == SYM_PLUS || sym == SYM_MINUS)
 	{
 		addop = sym;
 		getsym();
-		term(set);
+		term(set,1);
 		if (addop == SYM_PLUS)
 		{
 			gen(OPR, 0, OPR_ADD);
@@ -481,18 +505,173 @@ void expression(symset fsys)
 			gen(OPR, 0, OPR_MIN);
 		}
 	} // while
-
 	destroyset(set);
+	return lvalue;
 } // expression
 
-void assign_expression(symset fsys){
-	expression(fsys);
-	while (sym==SYM_BECOMES)
-	{
-		expression(fsys);
-		//if (exp.lvalue) gen (LODA)
-		//gen(STOA)
+void assign_expression_(symset fsys){
+	//较为复杂，要考虑两种情况，
+	//若是a=1，则STOA没有问题，数据栈顶为a的地址，1，STOA后全弹出
+	//若a=b=1,栈顶为a地址，b地址，1,进行一次STOA后b虽然被赋值为1了
+	//，但是b地址随着STOA弹栈丢失了。
+	if(sym==SYM_BECOMES){
+		getsym();
+		bool lvalue=expression(fsys);
+		//语义分析，若接下来对上面这个exp赋值，检查exp是否是左值
+		bool null=0;
+		if(sym==SYM_BECOMES){
+			if(!lvalue){
+				//error this exp is not a lvalue
+			}
+		}
+		else null=1;
+		assign_expression_(fsys);
+		if(null){
+			if(lvalue)gen(LODA,0,0);
+		}
+		else{
+			gen(STOA,0,1);
+		}
+		//if (exp1 is lvalue) gen(LODA,0,0);
+
 	}
+	else {
+		//is null;
+	}
+}
+
+bool assign_expression(symset fsys){
+	bool ret_lvalue=0;
+	bool lvalue=expression(fsys);
+	//语义分析，若接下来对上面这个exp赋值，检查exp是否是左值
+	int null=0;
+	if(sym==SYM_BECOMES){
+		if(!lvalue){
+			//error this exp is not a lvalue
+		}
+	}
+	else {
+		null=1;
+	}
+	assign_expression_(fsys);
+	if(null){
+		if(lvalue){
+			gen(LODA,0,0);
+			ret_lvalue=1;
+		}
+	}
+	else{
+		gen(STOA,0,1);
+	}
+	return ret_lvalue;
+	// if(sym==SYM_SEMICOLON){ 
+	// 	//一个单独的赋值或条件表达式自成一行，
+	// 	//并没有任何作用，后续不会被弹出，所以此处需要弹栈
+	// 	// stack pop;
+	// }
+	// else {
+	// 	// if(exp1 is lvalue){
+	// 	// 		gen(LODA,0,0);
+	// 	// } 
+	// }
+}
+
+struct Node{
+	int used;
+	int in0;
+	int in1;
+};
+
+struct Node nodeList[CXMAX];
+int optimizeStack[CXMAX];
+instruction codeBuf[CXMAX];
+void optimize(int begin,int end){
+
+	// int* parent =(int*)malloc(sizeof(int)*(end-begin));
+	int top=-1;
+	for(int idx=begin;idx<end;idx++){
+		instruction i=code[idx];
+		nodeList[idx].used=0;
+		nodeList[idx].in0=nodeList[idx].in1=-1;
+		switch (i.f)
+		{
+		case LIT:
+		case LOD:
+		case LEA:
+			optimizeStack[++top]=idx;		
+			break;
+		case OPR:
+			switch (i.a) // operator
+			{
+			case OPR_NEG:
+				nodeList[idx].in0=optimizeStack[top];
+				optimizeStack[top]=idx;
+				break;
+			case OPR_ADD:
+				nodeList[idx].in0=optimizeStack[top];
+				nodeList[idx].in1=optimizeStack[top-1];
+				optimizeStack[--top]=idx;
+				break;
+			case OPR_MIN:
+				nodeList[idx].in0=optimizeStack[top];
+				nodeList[idx].in1=optimizeStack[top-1];
+				optimizeStack[--top]=idx;
+				break;
+			case OPR_MUL:
+				nodeList[idx].in0=optimizeStack[top];
+				nodeList[idx].in1=optimizeStack[top-1];
+				optimizeStack[--top]=idx;
+				break;
+			case OPR_DIV:
+				nodeList[idx].in0=optimizeStack[top];
+				nodeList[idx].in1=optimizeStack[top-1];
+				optimizeStack[--top]=idx;
+				break;
+			} // switch
+			break;
+		case LODA:
+			nodeList[idx].in0=optimizeStack[top];
+			optimizeStack[top]=idx;
+			break;
+		case STO:
+			nodeList[idx].in0=optimizeStack[top];
+			top--;
+			break;
+		case STOA:
+			if(i.a==0){
+				nodeList[idx].in0=optimizeStack[top--];
+				nodeList[idx].in1=optimizeStack[top--];
+			}
+			else{
+				nodeList[idx].in0=optimizeStack[top];
+				nodeList[idx].in1=optimizeStack[top-1];
+				optimizeStack[--top]=idx;
+			}
+			break;
+		default:
+			break;
+		}
+	}
+	for(int idx=end-1;idx>=begin;idx--){
+		struct Node n=nodeList[idx];
+		instruction i=code[idx];
+		if(n.used||i.f==STO||i.f==STOA){
+			nodeList[idx].used=1;
+			if(n.in0!=-1)nodeList[n.in0].used=1;
+			if(n.in1!=-1)nodeList[n.in1].used=1;
+		}
+		if(i.f==STOA){
+			code[idx].a=0;
+		}
+	}
+	int usednum=0;
+	for(int idx=begin;idx<end;idx++){
+		if(nodeList[idx].used){
+			code[begin+usednum]=code[idx];
+			usednum++;
+		}
+	}
+	cx=begin+usednum;
 	
 }
 
@@ -505,13 +684,15 @@ void condition(symset fsys)
 	if (sym == SYM_ODD)
 	{
 		getsym();
-		expression(fsys);
+		// expression(fsys);
+		assign_expression(fsys);
 		gen(OPR, 0, 6);
 	}
 	else
 	{
 		set = uniteset(relset, fsys);
-		expression(set);
+		// expression(set);
+		assign_expression(set);
 		destroyset(set);
 		if (! inset(sym, relset))
 		{
@@ -521,7 +702,8 @@ void condition(symset fsys)
 		{
 			relop = sym;
 			getsym();
-			expression(fsys);
+			// expression(fsys);
+			assign_expression(fsys);
 			switch (relop)
 			{
 			case SYM_EQU:
@@ -550,7 +732,8 @@ void condition(symset fsys)
 void paralist_(symset fsys,int* len){
 	if(sym==SYM_COMMA){
 		getsym();
-		expression(fsys);
+		// expression(fsys);
+		assign_expression(fsys);
 		int paralist1_len;
 		paralist_(fsys,&paralist1_len);
 		*len=paralist1_len+1;
@@ -561,7 +744,8 @@ void paralist_(symset fsys,int* len){
 }
 
 void paralist(symset fsys,int* len){
-	expression(fsys);
+	// expression(fsys);
+	assign_expression(fsys);
 	int paralist_len;
 	paralist_(fsys,&paralist_len);
 	*len=paralist_len+1;
@@ -576,7 +760,8 @@ void Elist_(symset fsys,arrayInf array,int ndim){
 			//error; array have array.dim dims,but get ndim dims
 		}
 		getsym();
-		expression(fsys);
+		// expression(fsys);
+		assign_expression(fsys);
 		gen(LIT,0,limit(array,ndim));
 		gen(OPR,0,OPR_MUL);
 		Elist_(fsys,array,ndim+1);
@@ -592,7 +777,8 @@ void Elist_(symset fsys,arrayInf array,int ndim){
 }
 
 void Elist(symset fsys,arrayInf array){
-	expression(fsys);
+	// expression(fsys);
+	assign_expression(fsys);
 	// printf("%d\n",sym);
 	//place*limit
 	gen(LIT,0,limit(array,0));
@@ -639,9 +825,8 @@ void V(symset fsys){
 		//error; expect [
 	}
 	V_(fsys,table[i].array);
-	gen(LIT,0,mk->address);
+	gen(LEA,level-mk->level,mk->address);
 	gen(OPR,0,OPR_ADD);
-
 }
 
 void statement(symset fsys)
@@ -649,41 +834,48 @@ void statement(symset fsys)
 	int i, cx1, cx2;
 	symset set1, set;
 
-	if (sym == SYM_IDENTIFIER)
+	// if (sym == SYM_IDENTIFIER)
+	// { // variable assignment
+	// 	mask* mk;
+	// 	if (! (i = position(id)))
+	// 	{
+	// 		error(11); // Undeclared identifier.
+	// 	}
+	// 	// else if (table[i].kind != ID_VARIABLE)
+	// 	// {
+
+	// 	// 	error(12); // Illegal assignment.
+	// 	// 	i = 0;
+	// 	// }
+	// 	V(fsys);
+	// 	// getsym();
+	// 	if (sym == SYM_BECOMES)
+	// 	{
+	// 		getsym();
+	// 	}
+	// 	else
+	// 	{
+	// 		error(13); // ':=' expected.
+	// 	}
+	// 	expression(fsys);
+	// 	mk = (mask*) &table[i];
+	// 	if (i)
+	// 	{
+	// 		if(table[i].kind==ID_VARIABLE){
+	// 			gen(STO, level - mk->level, mk->address);
+	// 		}
+	// 		else if (table[i].kind==ID_ARRAY){
+	// 			gen(STOA,level-mk->level,0);
+	// 		}
+	// 	}
+
+	// }
+	symset assignExpBeginSet=createset(SYM_IDENTIFIER,SYM_NUMBER,SYM_MINUS,SYM_CONST,SYM_LPAREN);
+	if (inset(sym,assignExpBeginSet))
 	{ // variable assignment
-		mask* mk;
-		if (! (i = position(id)))
-		{
-			error(11); // Undeclared identifier.
-		}
-		// else if (table[i].kind != ID_VARIABLE)
-		// {
-
-		// 	error(12); // Illegal assignment.
-		// 	i = 0;
-		// }
-		V(fsys);
-		// getsym();
-		if (sym == SYM_BECOMES)
-		{
-			getsym();
-		}
-		else
-		{
-			error(13); // ':=' expected.
-		}
-		expression(fsys);
-		mk = (mask*) &table[i];
-		if (i)
-		{
-			if(table[i].kind==ID_VARIABLE){
-				gen(STO, level - mk->level, mk->address);
-			}
-			else if (table[i].kind==ID_ARRAY){
-				gen(STOA,level-mk->level,0);
-			}
-		}
-
+		int begincx=cx;
+		assign_expression(fsys);
+		optimize(begincx,cx);
 	}
 	else if (sym == SYM_CALL)
 	{ // procedure call
@@ -810,146 +1002,10 @@ void statement(symset fsys)
 		}
 	}
 	test(fsys, phi, 19);
-} // statement1
-
-
-
-//////////////////////////////////////////////////////////////////////
-void statement1(symset fsys)
-{
-	int i, cx1, cx2;
-	symset set1, set;
-
-	if (sym == SYM_IDENTIFIER)
-	{ // variable assignment
-		mask* mk;
-		if (! (i = position(id)))
-		{
-			error(11); // Undeclared identifier.
-		}
-		else if (table[i].kind != ID_VARIABLE)
-		{
-			error(12); // Illegal assignment.
-			i = 0;
-		}
-		getsym();
-		if (sym == SYM_BECOMES)
-		{
-			getsym();
-		}
-		else
-		{
-			error(13); // ':=' expected.
-		}
-		expression(fsys);
-		mk = (mask*) &table[i];
-		if (i)
-		{
-			gen(STO, level - mk->level, mk->address);
-		}
-	}
-	else if (sym == SYM_CALL)
-	{ // procedure call
-		getsym();
-		if (sym != SYM_IDENTIFIER)
-		{
-			error(14); // There must be an identifier to follow the 'call'.
-		}
-		else
-		{
-			if (! (i = position(id)))
-			{
-				error(11); // Undeclared identifier.
-			}
-			else if (table[i].kind == ID_PROCEDURE)
-			{
-				mask* mk;
-				mk = (mask*) &table[i];
-				gen(CAL, level - mk->level, mk->address);
-			}
-			else
-			{
-				error(15); // A constant or variable can not be called. 
-			}
-			getsym();
-		}
-	} 
-	else if (sym == SYM_IF)
-	{ // if statement
-		getsym();
-		set1 = createset(SYM_THEN, SYM_DO, SYM_NULL);
-		set = uniteset(set1, fsys);
-		condition(set);
-		destroyset(set1);
-		destroyset(set);
-		if (sym == SYM_THEN)
-		{
-			getsym();
-		}
-		else
-		{
-			error(16); // 'then' expected.
-		}
-		cx1 = cx;
-		gen(JPC, 0, 0);
-		statement(fsys);
-		code[cx1].a = cx;	
-	}
-	else if (sym == SYM_BEGIN)
-	{ // block
-		getsym();
-		set1 = createset(SYM_SEMICOLON, SYM_END, SYM_NULL);
-		set = uniteset(set1, fsys);
-		statement(set);
-		while (sym == SYM_SEMICOLON || inset(sym, statbegsys))
-		{
-			if (sym == SYM_SEMICOLON)
-			{
-				getsym();
-			}
-			else
-			{
-				error(10);
-			}
-			statement(set);
-		} // while
-		destroyset(set1);
-		destroyset(set);
-		if (sym == SYM_END)
-		{
-			getsym();
-		}
-		else
-		{
-			error(17); // ';' or 'end' expected.
-		}
-	}
-	else if (sym == SYM_WHILE)
-	{ // while statement
-		cx1 = cx;
-		getsym();
-		set1 = createset(SYM_DO, SYM_NULL);
-		set = uniteset(set1, fsys);
-		condition(set);
-		destroyset(set1);
-		destroyset(set);
-		cx2 = cx;
-		gen(JPC, 0, 0);
-		if (sym == SYM_DO)
-		{
-			getsym();
-		}
-		else
-		{
-			error(18); // 'do' expected.
-		}
-		statement(fsys);
-		gen(JMP, 0, cx1);
-		code[cx2].a = cx;
-	}
-	test(fsys, phi, 19);
 } // statement
-			
+
+
+
 //////////////////////////////////////////////////////////////////////
 void block(symset fsys)
 {
@@ -1186,7 +1242,8 @@ void interpret()
 			stack[++top] = stack[base(stack, b, i.l) + i.a];
 			break;
 		case LODA:
-			stack[top]=stack[base(stack,b,i.a)+stack[top]];
+			// stack[top]=stack[base(stack,b,i.l)+stack[top]];
+			stack[top]=stack[stack[top]];
 			break;
 		case STO:
 			stack[base(stack, b, i.l) + i.a] = stack[top];
@@ -1194,9 +1251,19 @@ void interpret()
 			top--;
 			break;
 		case STOA:
-			stack[base(stack,b,i.l)+stack[top-1]]=stack[top];
+			// stack[base(stack,b,i.l)+stack[top-1]]=stack[top];
+			stack[stack[top-1]]=stack[top];
 			// printf("%d\n", stack[top]);
-			top-=2;
+			if(i.a==0){
+				top-=2;
+			}
+			else {
+				stack[top-1]=stack[top];
+				top--;
+			}
+			break;
+		case LEA:
+			stack[++top]=base(stack,b,i.l)+i.a;
 			break;
 		case CAL:
 			stack[top + 1] = base(stack, b, i.l);

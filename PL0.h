@@ -16,6 +16,8 @@
 
 #define STACKSIZE  1000   // maximum storage
 
+typedef unsigned char bool;
+
 enum symtype
 {
 	SYM_NULL,
@@ -60,7 +62,7 @@ enum idtype
 
 enum opcode
 {
-	LIT, OPR, LOD, STO, CAL, INT, JMP, JPC,STOA,LODA,PRT
+	LIT, OPR, LOD, STO, CAL, INT, JMP, JPC,STOA,LODA,PRT,LEA
 };
 
 enum oprcode
@@ -159,10 +161,10 @@ char csym[NSYM + 1] =
 	' ', '+', '-', '*', '/', '(', ')', '=', ',', '.', ';','[',']'
 };
 
-#define MAXINS   11
+#define MAXINS   12
 char* mnemonic[MAXINS] =
 {
-	"LIT", "OPR", "LOD", "STO", "CAL", "INT", "JMP", "JPC","STOA","LODA","PRT"
+	"LIT", "OPR", "LOD", "STO", "CAL", "INT", "JMP", "JPC","STOA","LODA","PRT","LEA"
 };
 
 
