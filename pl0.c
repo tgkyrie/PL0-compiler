@@ -359,6 +359,7 @@ bool factor(symset fsys,bool inferNotLvalue)
 {
 	bool assign_expression(symset fsys);
 	void V(symset fsys);
+	void setjmp(symset);
 	int i;
 	symset set;
 	bool lvalue=0;
@@ -414,6 +415,9 @@ bool factor(symset fsys,bool inferNotLvalue)
 			getsym();
 			// printf("%d\n",sym);
 		}
+		else if (sym==SYM_SETJMP){
+			setjmp(fsys);
+		}
 		else if (sym == SYM_LPAREN)
 		{
 			getsym();
@@ -436,7 +440,7 @@ bool factor(symset fsys,bool inferNotLvalue)
 		// 	 factor(fsys);
 		// 	 gen(OPR, 0, OPR_NEG);
 		// }
-		symset set1=uniteset(fsys,createset(SYM_RBRACKET,SYM_RPAREN,SYM_COMMA,SYM_BECOMES));
+		symset set1=uniteset(fsys,createset(SYM_RBRACKET,SYM_RPAREN,SYM_COMMA,SYM_BECOMES,SYM_NULL));
 		test(set1, createset(SYM_LPAREN, SYM_NULL), 23);
 	} // if
 	return lvalue&&(inferNotLvalue==0);
@@ -618,6 +622,56 @@ bool assign_expression(symset fsys){
 	// }
 }
 
+void setjmp(symset fsys)
+{
+	// void expression(symset);
+	getsym();
+	if(sym == SYM_LPAREN)
+	{
+		getsym();
+		// expression(fsys);
+		assign_expression(fsys);
+		if(sym == SYM_RPAREN)
+		{
+			getsym();
+			gen(SJP,0,0);
+		}
+		else{
+			// error: missing ')'
+		}
+	}
+	else{
+		// error: expecting '('
+	}
+}
+
+
+void longjmp(symset fsys)
+{
+	// void expression(symset);
+	getsym();
+	if(sym == SYM_LPAREN)
+	{
+		getsym();
+		// expression(fsys);
+		assign_expression(fsys);
+		getsym();
+		// expression(fsys);
+		assign_expression(fsys);
+		if(sym == SYM_RPAREN)
+		{
+			getsym();
+			gen(LJP,0,0);
+		}
+		else{
+			// error: missing ')'
+		}
+	}
+	else{
+		// error: missing '('
+	}
+}
+
 struct Node{
 	int used;
 	int in0;
@@ -638,6 +692,7 @@ void optimize(int begin,int end){
 		switch (i.f)
 		{
 		case LIT:
+		case SJP:
 		case LOD:
 		case LEA:
 			optimizeStack[++top]=idx;		
@@ -691,13 +746,29 @@ void optimize(int begin,int end){
 	for(int idx=end-1;idx>=begin;idx--){
 		struct Node n=nodeList[idx];
 		instruction i=code[idx];
-		if(n.used||i.f==STO||i.f==STOA){
+		if(n.used){
 			nodeList[idx].used=1;
 			if(n.in0!=-1)nodeList[n.in0].used=1;
 			if(n.in1!=-1)nodeList[n.in1].used=1;
 		}
-		if(i.f==STOA){
-			code[idx].a=0;
+		else{
+			if(i.f==STOA){
+				code[idx].a=0;
+				nodeList[idx].used=1;
+				if(n.in0!=-1)nodeList[n.in0].used=1;
+				if(n.in1!=-1)nodeList[n.in1].used=1;
+			}
+			else if(i.f==STO){
+				nodeList[idx].used=1;
+				if(n.in0!=-1)nodeList[n.in0].used=1;
+				if(n.in1!=-1)nodeList[n.in1].used=1;
+			}
+			else if(i.f==SJP){
+				code[idx].a=1;
+				nodeList[idx].used=1;
+				if(n.in0!=-1)nodeList[n.in0].used=1;
+				if(n.in1!=-1)nodeList[n.in1].used=1;
+			}
 		}
 	}
 	int usednum=0;
@@ -1271,8 +1342,11 @@ void statement(symset fsys)
 	else if(sym==SYM_FOR){
 		for_statement(fsys);
 	}
+	else if(sym==SYM_LONGJMP){
+		longjmp(fsys);
+	}
 	test(fsys, phi, 19);
-	last_cx1=-1;
+	// last_cx1=-1;
 } // statement
 
 
@@ -1432,7 +1506,8 @@ void interpret()
 	int top;       // top of stack
 	int b;         // program, base, and top-stack register
 	instruction i; // instruction register
-
+	int buf_idx;
+	int ljp_ret;
 	printf("Begin executing PL/0 program.\n");
 
 	pc = 0;
@@ -1566,6 +1641,31 @@ void interpret()
 				top-=i.a;
 			}
 			break;
+		case SJP:
+			buf_idx = (stack[top--] % 4) * 1024;
+			jmp_buf[buf_idx + 1] = pc;
+			jmp_buf[buf_idx + 2] = b;
+			jmp_buf[buf_idx + 3] = top;
+			jmp_buf[buf_idx + 4] = i.f;
+			jmp_buf[buf_idx + 5] = i.l;
+			jmp_buf[buf_idx + 6] = i.a;
+			memcpy(jmp_buf + 7, stack + b, top - b + 1);
+			if(i.a==0){
+				stack[++top] = 0;
+			}
+			break;
+		case LJP:
+			ljp_ret = (stack[top--]);
+			buf_idx = (stack[top--] % 4) * 1024;
+			pc = jmp_buf[buf_idx + 1];
+			b = jmp_buf[buf_idx + 2];
+			top = jmp_buf[buf_idx + 3];
+			i.f = jmp_buf[buf_idx + 4];
+			i.l = jmp_buf[buf_idx + 5];
+			i.a = jmp_buf[buf_idx + 6];
+			memcpy(stack + b, jmp_buf + buf_idx, top - b + 1);
+			stack[++top] = ljp_ret;
+			break;
 		} // switch
 	}
 	while (pc);
@@ -1594,8 +1694,8 @@ void main ()
 	
 	// create begin symbol sets
 	declbegsys = createset(SYM_CONST, SYM_VAR, SYM_PROCEDURE, SYM_NULL);
-	statbegsys = createset(SYM_BEGIN, SYM_CALL, SYM_IF, SYM_WHILE,SYM_NULL,SYM_FOR,SYM_ELSE);
-	facbegsys = createset(SYM_IDENTIFIER, SYM_NUMBER, SYM_LPAREN, SYM_MINUS, SYM_NULL);
+	statbegsys = createset(SYM_BEGIN, SYM_CALL, SYM_IF, SYM_WHILE,SYM_FOR,SYM_ELSE,SYM_LONGJMP,SYM_NULL);
+	facbegsys = createset(SYM_IDENTIFIER, SYM_NUMBER, SYM_LPAREN, SYM_MINUS,SYM_SETJMP, SYM_NULL);
 
 	err = cc = cx = ll = 0; // initialize global variables
 	ch = ' ';

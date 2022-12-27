@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include "arrayinf.h"
 
-#define NRW        14     // number of reserved words
+#define NRW        16     // number of reserved words
 #define TXMAX      500    // length of identifier table
 #define MAXNUMLEN  14     // maximum number of digits in numbers
 #define NSYM       12     // maximum number of symbols in array ssym and csym
@@ -15,6 +15,8 @@
 #define MAXSYM     30     // maximum number of symbols  
 
 #define STACKSIZE  1000   // maximum storage
+
+#define JMPMAX 4096
 
 typedef unsigned char bool;
 
@@ -55,7 +57,9 @@ enum symtype
 	SYM_PRINT,
 	SYM_FOR,
 	SYM_COLON,
-	SYM_ELSE
+	SYM_ELSE,
+	SYM_SETJMP,
+	SYM_LONGJMP
 };
 
 enum idtype
@@ -65,7 +69,7 @@ enum idtype
 
 enum opcode
 {
-	LIT, OPR, LOD, STO, CAL, INT, JMP, JPC,STOA,LODA,PRT,LEA
+	LIT, OPR, LOD, STO, CAL, INT, JMP, JPC,STOA,LODA,PRT,LEA,SJP,LJP
 };
 
 enum oprcode
@@ -143,13 +147,14 @@ char* word[NRW + 1] =
 {
 	"", /* place holder */
 	"begin", "call", "const", "do", "end","if",
-	"odd", "procedure", "then", "var", "while","print","for","else"
+	"odd", "procedure", "then", "var", "while","print","for","else","setjmp","longjmp"
 };
 
 int wsym[NRW + 1] =
 {
 	SYM_NULL, SYM_BEGIN, SYM_CALL, SYM_CONST, SYM_DO, SYM_END,
-	SYM_IF, SYM_ODD, SYM_PROCEDURE, SYM_THEN, SYM_VAR, SYM_WHILE,SYM_PRINT,SYM_FOR,SYM_ELSE
+	SYM_IF, SYM_ODD, SYM_PROCEDURE, SYM_THEN, SYM_VAR, SYM_WHILE,
+	SYM_PRINT,SYM_FOR,SYM_ELSE,SYM_SETJMP,SYM_LONGJMP
 };
 
 int ssym[NSYM + 1] =
@@ -164,10 +169,10 @@ char csym[NSYM + 1] =
 	' ', '+', '-', '*', '/', '(', ')', '=', ',', '.', ';','[',']'
 };
 
-#define MAXINS   12
+#define MAXINS   14
 char* mnemonic[MAXINS] =
 {
-	"LIT", "OPR", "LOD", "STO", "CAL", "INT", "JMP", "JPC","STOA","LODA","PRT","LEA"
+	"LIT", "OPR", "LOD", "STO", "CAL", "INT", "JMP", "JPC","STOA","LODA","PRT","LEA","SJP","LJP"
 };
 
 
@@ -195,4 +200,5 @@ typedef struct
 
 FILE* infile;
 
+int jmp_buf[JMPMAX];
 // EOF PL0.h
