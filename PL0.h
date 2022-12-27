@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include "arrayinf.h"
 
-#define NRW        12     // number of reserved words
+#define NRW        14     // number of reserved words
 #define TXMAX      500    // length of identifier table
 #define MAXNUMLEN  14     // maximum number of digits in numbers
 #define NSYM       12     // maximum number of symbols in array ssym and csym
@@ -52,7 +52,10 @@ enum symtype
 	SYM_CONST,
 	SYM_VAR,
 	SYM_PROCEDURE,
-	SYM_PRINT
+	SYM_PRINT,
+	SYM_FOR,
+	SYM_COLON,
+	SYM_ELSE
 };
 
 enum idtype
@@ -140,13 +143,13 @@ char* word[NRW + 1] =
 {
 	"", /* place holder */
 	"begin", "call", "const", "do", "end","if",
-	"odd", "procedure", "then", "var", "while","print"
+	"odd", "procedure", "then", "var", "while","print","for","else"
 };
 
 int wsym[NRW + 1] =
 {
 	SYM_NULL, SYM_BEGIN, SYM_CALL, SYM_CONST, SYM_DO, SYM_END,
-	SYM_IF, SYM_ODD, SYM_PROCEDURE, SYM_THEN, SYM_VAR, SYM_WHILE,SYM_PRINT
+	SYM_IF, SYM_ODD, SYM_PROCEDURE, SYM_THEN, SYM_VAR, SYM_WHILE,SYM_PRINT,SYM_FOR,SYM_ELSE
 };
 
 int ssym[NSYM + 1] =

@@ -112,7 +112,7 @@ void getsym(void)
 		}
 		else
 		{
-			sym = SYM_NULL;       // illegal?
+			sym = SYM_COLON;       // illegal?
 		}
 	}
 	else if (ch == '>')
@@ -479,14 +479,14 @@ bool term(symset fsys,bool inferNotLvalue)
 } // term
 
 //////////////////////////////////////////////////////////////////////
-bool expression(symset fsys)
+bool expression(symset fsys,bool inferNotLvalue)
 {
 	int addop;
 	symset set;
 	bool lvalue=0;
 	set = uniteset(fsys, createset(SYM_PLUS, SYM_MINUS, SYM_NULL));
 
-	lvalue=term(set,0);
+	lvalue=term(set,inferNotLvalue);
 	if(lvalue&&(sym == SYM_PLUS || sym == SYM_MINUS)){
 		gen(LODA,0,0);
 		lvalue=0;
@@ -506,17 +506,59 @@ bool expression(symset fsys)
 		}
 	} // while
 	destroyset(set);
+	return lvalue&&(!inferNotLvalue);
+} // expression
+
+
+bool condition_expression(symset fsys)
+{
+	int relop;
+	symset set;
+	bool lvalue=0;
+	set = uniteset(fsys, relset);
+
+	lvalue=expression(set,0);
+	// lvalue=term(set,0);
+	if(lvalue&&inset(sym,relset)){
+		gen(LODA,0,0);
+		lvalue=0;
+	}
+	while (inset(sym,relset))
+	{
+		relop = sym;
+		getsym();
+		// term(set,1);
+		expression(fsys,1);
+		switch (relop)
+			{
+			case SYM_EQU:
+				gen(OPR, 0, OPR_EQU);
+				break;
+			case SYM_NEQ:
+				gen(OPR, 0, OPR_NEQ);
+				break;
+			case SYM_LES:
+				gen(OPR, 0, OPR_LES);
+				break;
+			case SYM_GEQ:
+				gen(OPR, 0, OPR_GEQ);
+				break;
+			case SYM_GTR:
+				gen(OPR, 0, OPR_GTR);
+				break;
+			case SYM_LEQ:
+				gen(OPR, 0, OPR_LEQ);
+				break;
+			} // switch
+	} // while
+	destroyset(set);
 	return lvalue;
 } // expression
 
 void assign_expression_(symset fsys){
-	//较为复杂，要考虑两种情况，
-	//若是a=1，则STOA没有问题，数据栈顶为a的地址，1，STOA后全弹出
-	//若a=b=1,栈顶为a地址，b地址，1,进行一次STOA后b虽然被赋值为1了
-	//，但是b地址随着STOA弹栈丢失了。
 	if(sym==SYM_BECOMES){
 		getsym();
-		bool lvalue=expression(fsys);
+		bool lvalue=condition_expression(fsys);
 		//语义分析，若接下来对上面这个exp赋值，检查exp是否是左值
 		bool null=0;
 		if(sym==SYM_BECOMES){
@@ -542,7 +584,7 @@ void assign_expression_(symset fsys){
 
 bool assign_expression(symset fsys){
 	bool ret_lvalue=0;
-	bool lvalue=expression(fsys);
+	bool lvalue=condition_expression(fsys);
 	//语义分析，若接下来对上面这个exp赋值，检查exp是否是左值
 	int null=0;
 	if(sym==SYM_BECOMES){
@@ -608,21 +650,15 @@ void optimize(int begin,int end){
 				optimizeStack[top]=idx;
 				break;
 			case OPR_ADD:
-				nodeList[idx].in0=optimizeStack[top];
-				nodeList[idx].in1=optimizeStack[top-1];
-				optimizeStack[--top]=idx;
-				break;
 			case OPR_MIN:
-				nodeList[idx].in0=optimizeStack[top];
-				nodeList[idx].in1=optimizeStack[top-1];
-				optimizeStack[--top]=idx;
-				break;
 			case OPR_MUL:
-				nodeList[idx].in0=optimizeStack[top];
-				nodeList[idx].in1=optimizeStack[top-1];
-				optimizeStack[--top]=idx;
-				break;
 			case OPR_DIV:
+			case OPR_EQU:
+			case OPR_NEQ:
+			case OPR_LES:
+			case OPR_GEQ:
+			case OPR_GTR:
+			case OPR_LEQ:
 				nodeList[idx].in0=optimizeStack[top];
 				nodeList[idx].in1=optimizeStack[top-1];
 				optimizeStack[--top]=idx;
@@ -674,6 +710,7 @@ void optimize(int begin,int end){
 	cx=begin+usednum;
 	
 }
+
 
 //////////////////////////////////////////////////////////////////////
 void condition(symset fsys)
@@ -829,9 +866,89 @@ void V(symset fsys){
 	gen(OPR,0,OPR_ADD);
 }
 
+void rangeList(symset fsys){
+	if(sym==SYM_LPAREN){
+		getsym();
+		assign_expression(fsys);
+		if(sym==SYM_COMMA){
+			getsym();
+			assign_expression(fsys);
+			if(sym==SYM_COLON){
+				getsym();
+				assign_expression(fsys);
+				if(sym==SYM_RPAREN){
+					getsym();
+				}
+				else {
+					//error expect )
+				}
+			}
+			else if(sym==SYM_RPAREN){
+
+			}
+			else {
+				//error expect ) or ,
+			}
+		}
+		else{
+			//error expect ,
+		}
+	}
+	else {
+		//error expect (
+	}
+}
+
+// void for_statement(symset fsys){
+// 	if(sym==SYM_FOR){
+// 		getsym();
+// 		if(sym==SYM_LPAREN){
+// 			getsym();
+// 			if(sym==SYM_VAR){
+// 				getsym();
+// 				if (sym==SYM_IDENTIFIER)
+// 				{
+// 					char oldId[MAXIDLEN+1];
+// 					strcpy(oldId,id);
+// 					enter(ID_VARIABLE,NULL,id);
+// 					getsym();
+// 					if(sym==SYM_COLON){
+// 						rangeList(fsys);
+// 						if(sym==SYM_RPAREN){
+// 							getsym();
+// 							gen()			
+// 						}
+// 						else {
+// 							//error expect )
+// 						}
+// 					}
+// 					else {
+// 						//error expect :
+// 					}
+// 				}	
+// 				else
+// 				{
+// 					//error expect id;
+// 				}
+				
+// 			}
+// 			else{
+// 				//error expect var 
+// 			}
+// 		}
+// 		else {
+// 			//error expect (
+// 		}
+// 	}
+// 	else {
+// 		//error 
+// 		//expect for 
+// 	}
+// }
+int last_cx1;
 void statement(symset fsys)
 {
-	int i, cx1, cx2;
+	int i,cx1,cx2;
 	symset set1, set;
 
 	// if (sym == SYM_IDENTIFIER)
@@ -908,7 +1025,8 @@ void statement(symset fsys)
 		getsym();
 		set1 = createset(SYM_THEN, SYM_DO, SYM_NULL);
 		set = uniteset(set1, fsys);
-		condition(set);
+		// condition(set);
+		assign_expression(set);
 		destroyset(set1);
 		destroyset(set);
 		if (sym == SYM_THEN)
@@ -922,7 +1040,21 @@ void statement(symset fsys)
 		cx1 = cx;
 		gen(JPC, 0, 0);
 		statement(fsys);
-		code[cx1].a = cx;	
+		last_cx1=cx1;
+		code[cx1].a = cx;
+		test(fsys, phi, 19);
+		return ;
+	}
+	else if(sym == SYM_ELSE){
+		if(last_cx1==-1){
+			//error no matched if
+		}
+		getsym();
+		cx2=cx;
+		gen(JMP,0,0);
+		code[last_cx1].a=cx;
+		statement(fsys);
+		code[cx2].a=cx;
 	}
 	else if (sym == SYM_BEGIN)
 	{ // block
@@ -959,7 +1091,8 @@ void statement(symset fsys)
 		getsym();
 		set1 = createset(SYM_DO, SYM_NULL);
 		set = uniteset(set1, fsys);
-		condition(set);
+		// condition(set);
+		assign_expression(set);
 		destroyset(set1);
 		destroyset(set);
 		cx2 = cx;
@@ -998,10 +1131,11 @@ void statement(symset fsys)
 			
 		}	
 		else {
-			//error expect (;
+			//error expect (
 		}
 	}
 	test(fsys, phi, 19);
+	last_cx1=-1;
 } // statement
 
 
@@ -1323,7 +1457,7 @@ void main ()
 	
 	// create begin symbol sets
 	declbegsys = createset(SYM_CONST, SYM_VAR, SYM_PROCEDURE, SYM_NULL);
-	statbegsys = createset(SYM_BEGIN, SYM_CALL, SYM_IF, SYM_WHILE, SYM_NULL);
+	statbegsys = createset(SYM_BEGIN, SYM_CALL, SYM_IF, SYM_WHILE,SYM_NULL);
 	facbegsys = createset(SYM_IDENTIFIER, SYM_NUMBER, SYM_LPAREN, SYM_MINUS, SYM_NULL);
 
 	err = cc = cx = ll = 0; // initialize global variables
