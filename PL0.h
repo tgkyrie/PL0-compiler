@@ -113,12 +113,12 @@ char* err_msg[] =
 /* 23 */    "The symbol can not be followed by a factor.",
 /* 24 */    "The symbol can not be as the beginning of an expression.",
 /* 25 */    "The number is too great.",
-/* 26 */    "",
-/* 27 */    "",
-/* 28 */    "",
-/* 29 */    "",
-/* 30 */    "",
-/* 31 */    "",
+/* 26 */    "Missing :",
+/* 27 */    "Missing (",
+/* 28 */    "Missing var",
+/* 29 */    "step should not be zero",
+/* 30 */    "Const or Number expected",
+/* 31 */    "',' expected",
 /* 32 */    "There are too many levels."
 };
 

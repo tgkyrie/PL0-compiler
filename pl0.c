@@ -866,16 +866,41 @@ void V(symset fsys){
 	gen(OPR,0,OPR_ADD);
 }
 
+void low(int i){
+	if(sym==SYM_NUMBER){
+		getsym();
+		gen(LIT,0,num);
+	}
+	else if(sym==SYM_CONST){
+		
+	}
+	else {
+		//error expect const or number
+	}
+}
+
+void high(){
+
+}
+
+void step(){
+
+}
+
 void rangeList(symset fsys){
 	if(sym==SYM_LPAREN){
 		getsym();
-		assign_expression(fsys);
+
+		// low
+
+
 		if(sym==SYM_COMMA){
 			getsym();
-			assign_expression(fsys);
-			if(sym==SYM_COLON){
+			//high
+
+			if(sym==SYM_COMMA){
 				getsym();
-				assign_expression(fsys);
+				//step
 				if(sym==SYM_RPAREN){
 					getsym();
 				}
@@ -884,7 +909,8 @@ void rangeList(symset fsys){
 				}
 			}
 			else if(sym==SYM_RPAREN){
-
+				//step=1;
+				getsym();
 			}
 			else {
 				//error expect ) or ,
@@ -898,53 +924,161 @@ void rangeList(symset fsys){
 		//error expect (
 	}
 }
+typedef struct {
+	int low;
+	int high;
+	int step;
+} rangeRetVal;
+rangeRetVal range(symset fsys){
+	int low=1,high=1,step=1,var_pos;
+	if(sym==SYM_LPAREN){
+		getsym();
+		if(sym==SYM_NUMBER||sym==SYM_CONST){
+			getsym();
+			if(sym==SYM_CONST){
+				int i=position(id);
+				low=table[i].value;
+			}
+			else {
+				low=num;
+			}
+			if(sym==SYM_COMMA){
+				getsym();
+				if(sym==SYM_NUMBER||sym==SYM_CONST){
+					getsym();
+					if(sym==SYM_CONST){
+						int i=position(id);
+						high=table[i].value;
+					}
+					else {
+						high=num;
+					}
+					if(sym==SYM_COMMA){
+						getsym();
+						if(sym==SYM_NUMBER||sym==SYM_CONST){
+							//step
+							getsym();
+							if(sym==SYM_CONST){
+								int i=position(id);
+								step=table[i].value;
+							}
+							else {
+								step=num;
+							}
+							if(sym==SYM_RPAREN){
+								getsym();
+							}
+							else {
+								//error expect )
+								error(22);
+							}
+						}
+						else {
+							error(30);
+						}
+					}
+					else if(sym==SYM_RPAREN){
+						//step=1;
+						getsym();
+					}
+					else {
+						error(22);
+					}
+				}
+				else {
+					error(30);
+				}
+			}
+			else {
+				error(31);
+			}
 
-// void for_statement(symset fsys){
-// 	if(sym==SYM_FOR){
-// 		getsym();
-// 		if(sym==SYM_LPAREN){
-// 			getsym();
-// 			if(sym==SYM_VAR){
-// 				getsym();
-// 				if (sym==SYM_IDENTIFIER)
-// 				{
-// 					char oldId[MAXIDLEN+1];
-// 					strcpy(oldId,id);
-// 					enter(ID_VARIABLE,NULL,id);
-// 					getsym();
-// 					if(sym==SYM_COLON){
-// 						rangeList(fsys);
-// 						if(sym==SYM_RPAREN){
-// 							getsym();
-// 							gen()			
-// 						}
-// 						else {
-// 							//error expect )
-// 						}
-// 					}
-// 					else {
-// 						//error expect :
-// 					}
-// 				}	
-// 				else
-// 				{
-// 					//error expect id;
-// 				}
-				
-// 			}
-// 			else{
-// 				//error expect var 
-// 			}
-// 		}
-// 		else {
-// 			//error expect (
-// 		}
-// 	}
-// 	else {
-// 		//error 
-// 		//expect for 
-// 	}
-// }
+		}
+		else {
+			error(30);
+		}
+	}
+	else{
+		error(27);
+	}
+	rangeRetVal ret={low,high,step};
+	return ret;
+}
+
+void for_statement(symset fsys){
+	void statement(symset fsys);
+	int cx1,cx2;
+	if(sym==SYM_FOR){
+		getsym();
+		if(sym==SYM_LPAREN){
+			getsym();
+			if(sym==SYM_VAR){
+				getsym();
+				if(sym==SYM_IDENTIFIER){
+					getsym();
+					char oldId[MAXIDLEN+1];
+					mask* mk;
+					strcpy(oldId,id);
+					enter(ID_VARIABLE,NULL,id);
+					mk=(mask*)&table[tx];
+					if(sym==SYM_COLON){
+						getsym();
+						rangeRetVal ret=range(fsys);
+						if(sym==SYM_RPAREN){
+							getsym();
+							// i=low
+							gen(LIT,0,ret.low);
+							gen(STO,level-mk->level,mk->address);
+							cx1=cx;
+							// if not i<=high or i>=high jmp
+							gen(LOD,level-mk->level,mk->address);
+							gen(LIT,0,ret.high);
+							if(ret.step>0)gen(OPR,0,OPR_LEQ);
+							else if(ret.step<0)gen(OPR,0,OPR_GEQ);
+							else {
+								error(29);
+								gen(OPR,0,0);
+							}
+							cx2=cx;
+							gen(JPC,0,0);
+							statement(fsys);
+							// i=i+step
+							gen(LOD,level-mk->level,mk->address);
+							gen(LIT,0,ret.step);
+							gen(OPR,0,OPR_ADD);
+							gen(STO,level-mk->level,mk->address);
+							//jmp
+							gen(JMP,0,cx1);
+							code[cx2].a=cx;
+							tx--;
+						}
+						else{
+							error(22);
+						}
+					}
+					else {
+						error(26);
+					}
+
+				}
+				else {
+					error(4);
+				}
+
+			}
+			else{
+				error(28);
+			}
+		}
+		else {
+			error(27);
+		}
+	}
+	else {
+		//error 
+		//expect for 
+	}
+}
 int last_cx1;
 void statement(symset fsys)
 {
@@ -1133,6 +1267,9 @@ void statement(symset fsys)
 		else {
 			//error expect (
 		}
+	}
+	else if(sym==SYM_FOR){
+		for_statement(fsys);
 	}
 	test(fsys, phi, 19);
 	last_cx1=-1;
@@ -1457,7 +1594,7 @@ void main ()
 	
 	// create begin symbol sets
 	declbegsys = createset(SYM_CONST, SYM_VAR, SYM_PROCEDURE, SYM_NULL);
-	statbegsys = createset(SYM_BEGIN, SYM_CALL, SYM_IF, SYM_WHILE,SYM_NULL);
+	statbegsys = createset(SYM_BEGIN, SYM_CALL, SYM_IF, SYM_WHILE,SYM_NULL,SYM_FOR,SYM_ELSE);
 	facbegsys = createset(SYM_IDENTIFIER, SYM_NUMBER, SYM_LPAREN, SYM_MINUS, SYM_NULL);
 
 	err = cc = cx = ll = 0; // initialize global variables
