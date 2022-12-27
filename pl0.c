@@ -692,7 +692,6 @@ void optimize(int begin,int end){
 		switch (i.f)
 		{
 		case LIT:
-		case SJP:
 		case LOD:
 		case LEA:
 			optimizeStack[++top]=idx;		
@@ -720,6 +719,7 @@ void optimize(int begin,int end){
 				break;
 			} // switch
 			break;
+		case SJP:
 		case LODA:
 			nodeList[idx].in0=optimizeStack[top];
 			optimizeStack[top]=idx;
@@ -1649,7 +1649,7 @@ void interpret()
 			jmp_buf[buf_idx + 4] = i.f;
 			jmp_buf[buf_idx + 5] = i.l;
 			jmp_buf[buf_idx + 6] = i.a;
-			memcpy(jmp_buf + 7, stack + b, top - b + 1);
+			memcpy(jmp_buf +buf_idx+ 7, stack + b, sizeof(int)*(top - b + 1));
 			if(i.a==0){
 				stack[++top] = 0;
 			}
@@ -1663,7 +1663,7 @@ void interpret()
 			i.f = jmp_buf[buf_idx + 4];
 			i.l = jmp_buf[buf_idx + 5];
 			i.a = jmp_buf[buf_idx + 6];
-			memcpy(stack + b, jmp_buf + buf_idx, top - b + 1);
+			memcpy(stack + b, jmp_buf + buf_idx+7, sizeof(int)*(top - b + 1));
 			stack[++top] = ljp_ret;
 			break;
 		} // switch
