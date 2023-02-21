@@ -454,6 +454,7 @@ bool term(symset fsys,bool inferNotLvalue)
 	set = uniteset(fsys, createset(SYM_TIMES, SYM_SLASH, SYM_NULL));
 
 	if(sym==SYM_MINUS){
+		getsym();
 		term(fsys,1);
 		gen(OPR,0,OPR_NEG);
 	}
@@ -937,26 +938,26 @@ void V(symset fsys){
 	gen(OPR,0,OPR_ADD);
 }
 
-void low(int i){
-	if(sym==SYM_NUMBER){
-		getsym();
-		gen(LIT,0,num);
-	}
-	else if(sym==SYM_CONST){
+// void low(int i){
+// 	if(sym==SYM_NUMBER){
+// 		getsym();
+// 		gen(LIT,0,num);
+// 	}
+// 	else if(sym==SYM_CONST){
 		
-	}
-	else {
-		//error expect const or number
-	}
-}
+// 	}
+// 	else {
+// 		//error expect const or number
+// 	}
+// }
 
-void high(){
+// void high(){
 
-}
+// }
 
-void step(){
+// void step(){
 
-}
+// }
 
 void rangeList(symset fsys){
 	if(sym==SYM_LPAREN){
@@ -1002,8 +1003,13 @@ typedef struct {
 } rangeRetVal;
 rangeRetVal range(symset fsys){
 	int low=1,high=1,step=1,var_pos;
+	bool low_minus=0,high_minus=0,step_minus=0;
 	if(sym==SYM_LPAREN){
 		getsym();
+		if(sym==SYM_MINUS){
+			getsym();
+			low_minus=1;
+		}
 		if(sym==SYM_NUMBER||sym==SYM_CONST){
 			getsym();
 			if(sym==SYM_CONST){
@@ -1015,6 +1021,10 @@ rangeRetVal range(symset fsys){
 			}
 			if(sym==SYM_COMMA){
 				getsym();
+				if(sym==SYM_MINUS){
+					getsym();
+					high_minus=1;
+				}
 				if(sym==SYM_NUMBER||sym==SYM_CONST){
 					getsym();
 					if(sym==SYM_CONST){
@@ -1026,6 +1036,10 @@ rangeRetVal range(symset fsys){
 					}
 					if(sym==SYM_COMMA){
 						getsym();
+						if(sym==SYM_MINUS){
+							getsym();
+							step_minus=1;
+						}
 						if(sym==SYM_NUMBER||sym==SYM_CONST){
 							//step
 							getsym();
@@ -1072,7 +1086,7 @@ rangeRetVal range(symset fsys){
 	else{
 		error(27);
 	}
-	rangeRetVal ret={low,high,step};
+	rangeRetVal ret={low_minus?-low:low,high_minus?-high:high,step_minus?-step:step};
 	return ret;
 }
 

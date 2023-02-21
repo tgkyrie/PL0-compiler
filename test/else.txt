@@ -1,0 +1,10 @@
+var i;
+begin
+    i:=2;
+    if i>1 then
+        print(1);
+    else if i>3 then
+        print(2);
+    else 
+        print(3);
+end .

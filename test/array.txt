@@ -1,0 +1,7 @@
+var a[10][10],i,j;
+begin
+    i:=1;
+    j:=2;
+    a[i,j]:=999;
+    print(a[i,j]);
+end .
