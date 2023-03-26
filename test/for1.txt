@@ -1,0 +1,15 @@
+var a[10];
+begin
+    a[0]:=1;
+    a[1]:=2;
+    print(a[0]);
+    print();
+    print(a[1]);
+    print();
+    for (var i:(2,9,1)) begin
+        print(i);
+        a[i]:=a[i-1]+a[i-2];
+        print(a[i]);
+        print();
+    end;
+end .

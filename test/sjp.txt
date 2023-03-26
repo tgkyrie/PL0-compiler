@@ -1,0 +1,21 @@
+var i;
+procedure p;
+begin
+  i:=2;
+  print(i);
+  print();
+  longjmp(1, 8);
+  i:=3;
+end;
+procedure q;
+begin
+  i:=100;
+  
+end;
+begin
+  i:=setjmp(1);
+  print(i);
+  if i = 0 then
+    call p;
+  call q;
+end.
