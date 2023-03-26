@@ -1,4 +1,7 @@
 # PL0编译
+
+## C++重构版本位于PL0-cpp分支
+[PL0-cpp](https://github.com/tgkyrie/PL0-compiler/tree/PL0-cpp)
 ## 目录
 - [PL0编译](#pl0编译)
   - [目录](#目录)
